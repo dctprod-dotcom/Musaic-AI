@@ -1,0 +1,17 @@
+{
+  "name": "Musaic AI",
+  "short_name": "Musaic",
+  "description": "AI-Powered Visual Suite for Musicians",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#050505",
+  "icons": [
+    {
+      "src": "/logo-musaic.jpeg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}
