@@ -1,5 +1,0 @@
-{
-  "name": "MUSAIC AI V3.0",
-  "description": "Modular AI Visual & Press Suite for music professionals. Featuring Artwork, Press & Bio, and Video (Veo) modules.",
-  "requestFramePermissions": ["camera", "microphone"]
-}
