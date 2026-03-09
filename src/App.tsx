@@ -32,10 +32,13 @@ const Tutorials = lazy(() => import('./components/Tutorials').then(m => ({ defau
 const ArtworkGenerator = lazy(() => import('./components/ArtworkGenerator').then(m => ({ default: m.ArtworkGenerator })));
 const Membership = lazy(() => import('./components/Membership').then(m => ({ default: m.Membership })));
 const InfoPages = lazy(() => import('./components/InfoPages').then(m => ({ default: m.InfoPages })));
+// ── NOUVEAU: Release Hub ──────────────────────────────────
+const ReleaseHub = lazy(() => import('./components/ReleaseHub').then(m => ({ default: m.default })));
 
 const ADMIN_EMAIL = "contact.musaicai@gmail.com";
 
-type ModuleId = 'landing' | 'dashboard' | 'smart-link' | 'bio' | 'epk' | 'video' | 'artwork' | 'strategy' | 'tutorials' | 'membership' | 'about' | 'faq' | 'privacy' | 'terms' | 'contact';
+// ── MODIFIÉ: 'release-hub' et 'pricing' ajoutés au type ──
+type ModuleId = 'landing' | 'dashboard' | 'smart-link' | 'bio' | 'epk' | 'video' | 'artwork' | 'strategy' | 'tutorials' | 'membership' | 'release-hub' | 'pricing' | 'about' | 'faq' | 'privacy' | 'terms' | 'contact';
 
 const NAV_ITEMS = [
   { id: 'dashboard' as ModuleId, icon: LayoutGrid, label: 'nav.dashboard' },
@@ -115,7 +118,7 @@ function Dashboard({ t, onNavigate, user, onSignUp }: { t: (k: string) => string
         </div>
       )}
 
-      {/* 2x2 Grid — takes remaining space, fits viewport */}
+      {/* 2x2 Grid */}
       <div className="flex-1 grid grid-cols-2 gap-3 lg:gap-4 min-h-0">
         {modules.map((mod, idx) => (
           <motion.button key={mod.id}
@@ -135,18 +138,24 @@ function Dashboard({ t, onNavigate, user, onSignUp }: { t: (k: string) => string
         ))}
       </div>
 
-      {/* Quick row */}
-      <div className="mt-3 grid grid-cols-2 gap-3">
+      {/* ── MODIFIÉ: Quick row avec Release Hub ajouté ── */}
+      <div className="mt-3 grid grid-cols-3 gap-3">
+        <button onClick={() => onNavigate('release-hub')}
+          className="flex items-center gap-2 p-3 glass-card rounded-xl hover:bg-white/5 transition-all group">
+          <Target className="w-4 h-4 text-turquoise" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 group-hover:text-white hidden sm:block">Hub</span>
+          <ArrowRight className="w-3 h-3 text-white/20 ml-auto" />
+        </button>
         <button onClick={() => onNavigate('strategy')}
           className="flex items-center gap-2 p-3 glass-card rounded-xl hover:bg-white/5 transition-all group">
           <Target className="w-4 h-4 text-orange-400" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 group-hover:text-white">Strategy</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 group-hover:text-white hidden sm:block">Strategy</span>
           <ArrowRight className="w-3 h-3 text-white/20 ml-auto" />
         </button>
         <button onClick={() => onNavigate('tutorials')}
           className="flex items-center gap-2 p-3 glass-card rounded-xl hover:bg-white/5 transition-all group">
           <BookOpen className="w-4 h-4 text-white/40" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 group-hover:text-white">Tutorials</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 group-hover:text-white hidden sm:block">Tutorials</span>
           <ArrowRight className="w-3 h-3 text-white/20 ml-auto" />
         </button>
       </div>
@@ -154,7 +163,7 @@ function Dashboard({ t, onNavigate, user, onSignUp }: { t: (k: string) => string
   );
 }
 
-// ─── Auth Gate — shown inside modules for non-logged users
+// ─── Auth Gate ────────────────────────────────────────────
 function AuthGate({ onSignUp, moduleName }: { onSignUp: () => void; moduleName: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 px-6 text-center space-y-6">
@@ -285,14 +294,13 @@ function App() {
   // Public smart link
   if (location.pathname.startsWith('/s/')) return <Suspense fallback={<ModuleLoader />}><SpotlightPublic /></Suspense>;
 
-  // ─── Module renderer — ALL modules visible, auth gate only on actions ─
+  // ─── Module renderer ──────────────────────────────────
   function renderModule() {
     if (activeModule === 'landing' && !user) return <LandingPage t={t} onGetStarted={() => setActiveModule('dashboard')} />;
     if (activeModule === 'landing' || activeModule === 'dashboard') return <Dashboard t={t} onNavigate={setActiveModule} user={user} onSignUp={() => openAuth(true)} />;
 
     switch (activeModule) {
       case 'smart-link':
-        // Guest can SEE the editor UI, but save requires auth
         return user
           ? <SpotlightEditor user={user} t={t} onBack={() => setActiveModule('dashboard')} generatedAssets={{}} />
           : <><SpotlightEditor user={{ uid: 'guest', displayName: 'Guest' }} t={t} onBack={() => setActiveModule('dashboard')} generatedAssets={{}} /><AuthGate onSignUp={() => openAuth(true)} moduleName="Smart Link Studio" /></>;
@@ -304,8 +312,14 @@ function App() {
         return user?.isPro ? <VideoGenerator aiPreferences={aiPreferences} /> : <ProGate t={t} onSignUp={() => openAuth(true)} />;
       case 'strategy':
         return <ReleaseStrategy user={user} lang={currentLang} />;
-      case 'tutorials': return <Tutorials />;
-      case 'membership': return <Membership user={user} lang={currentLang} />;
+      case 'tutorials':
+        return <Tutorials />;
+      case 'membership': case 'pricing':
+        return <Membership user={user} lang={currentLang} />;
+      // ── NOUVEAU ──────────────────────────────────────
+      case 'release-hub':
+        return <ReleaseHub />;
+      // ─────────────────────────────────────────────────
       default:
         if (['about', 'faq', 'privacy', 'terms', 'contact'].includes(activeModule)) return <InfoPages page={activeModule as any} lang={currentLang} />;
         return <Dashboard t={t} onNavigate={setActiveModule} user={user} onSignUp={() => openAuth(true)} />;
@@ -388,6 +402,13 @@ function App() {
                     </button>
                   ))}
                   <div className="h-px bg-white/5 my-3" />
+                  {/* ── NOUVEAU: Release Hub dans la sidebar ── */}
+                  <button onClick={() => setActiveModule('release-hub')}
+                    className={`w-full flex items-center gap-4 p-3.5 rounded-2xl transition-all group ${activeModule === 'release-hub' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>
+                    <Target className={`w-5 h-5 ${activeModule === 'release-hub' ? 'text-turquoise' : 'group-hover:text-turquoise transition-colors'}`} />
+                    <span className="hidden xl:block text-[11px] font-bold uppercase tracking-widest">Release Hub</span>
+                    {activeModule === 'release-hub' && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-turquoise shadow-[0_0_10px_rgba(0,255,221,0.8)] hidden xl:block" />}
+                  </button>
                   <button onClick={() => setActiveModule('tutorials')} className={`w-full flex items-center gap-4 p-3.5 rounded-2xl transition-all group ${activeModule === 'tutorials' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>
                     <BookOpen className={`w-5 h-5 ${activeModule === 'tutorials' ? 'text-turquoise' : 'group-hover:text-turquoise transition-colors'}`} />
                     <span className="hidden xl:block text-[11px] font-bold uppercase tracking-widest">{t('nav.tutorials')}</span>
@@ -431,12 +452,15 @@ function App() {
           </div>
         )}
 
-        {/* Hamburger — z-[150] */}
+        {/* Hamburger menu — overlay se ferme au clic */}
         <AnimatePresence>
           {isMenuOpen && (
             <>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMenuOpen(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150]" />
-              <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => setIsMenuOpen(false)}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150]" />
+              <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                 className="fixed top-0 left-0 h-full w-80 bg-[#0B0E14] border-r border-white/10 z-[151] p-8 shadow-2xl overflow-y-auto">
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-3">
@@ -451,6 +475,10 @@ function App() {
                       <User className="w-5 h-5 text-white/40 group-hover:text-turquoise" /><span className="text-xs font-bold uppercase tracking-widest text-white/60 group-hover:text-white">{t('nav.myAccount')}</span>
                     </button>
                   )}
+                  {/* ── NOUVEAU: Release Hub dans le hamburger ── */}
+                  <button onClick={() => { setActiveModule('release-hub'); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-all group text-left">
+                    <Target className="w-5 h-5 text-turquoise/60 group-hover:text-turquoise" /><span className="text-xs font-bold uppercase tracking-widest text-white/60 group-hover:text-white">Release Hub</span>
+                  </button>
                   {([
                     { icon: BookOpen, label: t('nav.tutorials'), module: 'tutorials' },
                     { icon: HelpCircle, label: t('nav.faq'), module: 'faq' },
