@@ -31,7 +31,7 @@ import { SmartLinkPro } from './components/SmartLinkPro';
 import { ArtworkStudio } from './components/ArtworkStudio';
 import { EPKAssistant } from './components/EPKAssistant';
 import { MediaLibrary } from './components/MediaLibrary';
-import { callVeo } from './components/ai-service';
+import { callVeo3 } from './components/ai-service';
 
 // ── Lazy (heavy/rare pages) ──────────────────────────────
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
@@ -193,19 +193,24 @@ function ProGate({ t, onUpgrade }: { t: (k: string) => string; onUpgrade: () => 
   );
 }
 
-// ── Video Module (inline — Veo structure) ─────────────────
+// ── Video Module (Veo 3) ──────────────────────────────────
 function VideoModule({ t, onBack }: { t: (k: string) => string; onBack: () => void }) {
   const [prompt, setPrompt] = useState('');
+  const [duration, setDuration] = useState(5);
   const [generating, setGenerating] = useState(false);
-  const [done, setDone] = useState(false);
+  const [result, setResult] = useState<{ status: string; message?: string; url?: string } | null>(null);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     setGenerating(true);
-    await callVeo(prompt);
-    await new Promise(r => setTimeout(r, 2000));
-    setDone(true);
-    setGenerating(false);
+    try {
+      const res = await callVeo3(prompt, duration);
+      setResult(res);
+    } catch (err) {
+      setResult({ status: 'error', message: 'Generation failed.' });
+    } finally {
+      setGenerating(false);
+    }
   };
 
   return (
@@ -216,12 +221,21 @@ function VideoModule({ t, onBack }: { t: (k: string) => string; onBack: () => vo
         <button onClick={onBack} className="p-2.5 text-white/30 hover:text-white hover:bg-white/10 rounded-xl transition-all"><X className="w-5 h-5" /></button>
       </div>
       <div className="max-w-3xl mx-auto p-4 lg:p-8 pt-0 space-y-6">
-        {done ? (
+        {result ? (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card rounded-3xl p-10 text-center space-y-4">
-            <div className="w-20 h-20 bg-purple-neon/10 rounded-full flex items-center justify-center ring-1 ring-purple-neon/20 mx-auto"><Video className="w-10 h-10 text-purple-neon" /></div>
-            <h2 className="text-xl font-black uppercase text-white">{t('video.comingSoon')}</h2>
-            <p className="text-white/40 text-sm max-w-md mx-auto">{t('video.veoMessage')}</p>
-            <button onClick={() => setDone(false)} className="text-turquoise text-xs font-bold uppercase tracking-wider hover:underline">{t('action.back')}</button>
+            <div className="w-20 h-20 bg-purple-neon/10 rounded-full flex items-center justify-center ring-1 ring-purple-neon/20 mx-auto">
+              <Video className="w-10 h-10 text-purple-neon" />
+            </div>
+            <h2 className="text-xl font-black uppercase text-white">
+              {result.status === 'ready' ? t('video.ready') : result.status === 'pending' ? t('video.comingSoon') : t('error.title')}
+            </h2>
+            <p className="text-white/40 text-sm max-w-md mx-auto">{result.message || t('video.veoMessage')}</p>
+            {result.url && (
+              <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-6 py-3 bg-purple-neon text-white font-bold uppercase tracking-widest text-xs rounded-xl hover:brightness-110 transition-all">
+                <Play className="w-4 h-4" /> {t('video.watchNow')}
+              </a>
+            )}
+            <button onClick={() => setResult(null)} className="block mx-auto text-turquoise text-xs font-bold uppercase tracking-wider hover:underline">{t('video.tryAgain')}</button>
           </motion.div>
         ) : (
           <>
@@ -230,10 +244,21 @@ function VideoModule({ t, onBack }: { t: (k: string) => string; onBack: () => vo
               <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={4}
                 className="w-full bg-black/30 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-purple-neon/40 text-sm placeholder:text-white/15 resize-none transition-all"
                 placeholder={t('video.promptPlaceholder')} />
+              <div>
+                <label className="text-[10px] text-white/30 font-bold uppercase tracking-widest block mb-2">{t('video.duration')}</label>
+                <div className="flex gap-2">
+                  {[5, 10, 15].map(d => (
+                    <button key={d} onClick={() => setDuration(d)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase transition-all ${duration === d ? 'bg-purple-neon text-white' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}>
+                      {d}s
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             <button onClick={handleGenerate} disabled={generating || !prompt.trim()}
               className="w-full py-4 bg-purple-neon text-white font-bold uppercase tracking-widest rounded-xl hover:brightness-110 disabled:opacity-50 flex items-center justify-center gap-2 transition-all">
-              {generating ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('video.generating')}</> : <><Play className="w-5 h-5" /> {t('video.generate')}</>}
+              {generating ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('video.generating')}</> : <><Play className="w-5 h-5" /> {t('video.generate')} — Veo 3</>}
             </button>
             <div className="glass-card rounded-2xl p-4 flex items-start gap-3">
               <AlertCircle className="w-4 h-4 text-purple-neon/60 mt-0.5 flex-shrink-0" />
@@ -532,7 +557,12 @@ function App() {
   const handleLogout = async () => { await signOut(auth); setIsAdmin(false); setActiveModule('landing'); setIsMenuOpen(false); navigate('/'); };
   const openAuth = (signUp: boolean) => { setShowAuthModal(true); setIsSignUp(signUp); setAuthError(null); setResetSent(false); setIsMenuOpen(false); };
 
-  if (loading) return <div className="min-h-screen bg-[#050505] flex items-center justify-center"><Loader2 className="w-12 h-12 text-turquoise animate-spin" /></div>;
+  if (loading) return (
+    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center gap-4">
+      <Loader2 className="w-10 h-10 text-turquoise animate-spin" />
+      <p className="text-white/20 text-xs font-bold uppercase tracking-widest">{t('brand.tagline')}</p>
+    </div>
+  );
   if (location.pathname.startsWith('/s/') || location.pathname.startsWith('/l/')) return <Suspense fallback={<ModuleLoader />}><SpotlightPublic /></Suspense>;
 
   // ── Module Renderer ──
