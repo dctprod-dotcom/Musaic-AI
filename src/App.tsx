@@ -30,6 +30,7 @@ import { Footer } from './components/Footer';
 import { SmartLinkPro } from './components/SmartLinkPro';
 import { ArtworkStudio } from './components/ArtworkStudio';
 import { EPKAssistant } from './components/EPKAssistant';
+import { MediaLibrary } from './components/MediaLibrary';
 import { callVeo } from './components/ai-service';
 
 // ── Lazy (heavy/rare pages) ──────────────────────────────
@@ -47,7 +48,7 @@ const TOKEN_COSTS: Record<string, number> = {
 };
 
 type ModuleId = 'landing' | 'dashboard' | 'smart-link' | 'bio' | 'epk' | 'video' | 'artwork'
-  | 'tutorials' | 'membership' | 'release-hub' | 'pricing' | 'my-account'
+  | 'tutorials' | 'membership' | 'release-hub' | 'pricing' | 'my-account' | 'media-library'
   | 'about' | 'faq' | 'privacy' | 'terms' | 'contact';
 
 const NAV_ITEMS = [
@@ -374,25 +375,70 @@ function App() {
   useCrisp();
   const goHome = useCallback(() => setActiveModule('dashboard'), []);
 
-  // ── Auth — with Google redirect fallback ──
+  // ── Auth — with Google redirect fallback + verbose logging ──
   useEffect(() => {
-    if (!auth || !db) { setLoading(false); return; }
+    console.log('[Auth] Initializing... auth:', !!auth, 'db:', !!db);
+    if (!auth || !db) {
+      console.error('[Auth] Firebase not initialized! Check firebase.ts exports and .env variables.');
+      setLoading(false);
+      return;
+    }
     // Handle redirect result (for mobile/blocked popup)
-    getRedirectResult(auth).catch(() => {});
+    getRedirectResult(auth)
+      .then((result) => { if (result?.user) console.log('[Auth] Redirect result:', result.user.email); })
+      .catch((err) => console.error('[Auth] Redirect result error:', err.code, err.message));
+
     const unsub = onAuthStateChanged(auth, async (u) => {
+      console.log('[Auth] State changed:', u ? u.email : 'signed out');
       if (u) {
         try {
           const ref = doc(db, 'users', u.uid);
           const snap = await getDoc(ref);
           let data: any;
-          if (snap.exists()) { data = snap.data(); }
-          else { data = { email: u.email, displayName: u.displayName || '', avatar: u.photoURL || '', credits: 50, points: 50, isPro: false, plan: 'guest', createdAt: serverTimestamp() }; await setDoc(ref, data); }
+          if (snap.exists()) {
+            data = snap.data();
+            console.log('[Auth] User doc found:', { plan: data.plan, points: data.points, isPro: data.isPro });
+          } else {
+            console.log('[Auth] New user — creating Firestore doc with 50 tokens');
+            data = {
+              email: u.email,
+              displayName: u.displayName || '',
+              avatar: u.photoURL || '',
+              credits: 50,
+              points: 50,
+              isPro: false,
+              plan: 'guest',
+              createdAt: serverTimestamp(),
+            };
+            await setDoc(ref, data);
+          }
+
+          // ── ADMIN HARDCODE ──
           const admin = u.email === ADMIN_EMAIL;
-          setUser({ ...u, ...data, uid: u.uid, isPro: admin || data.isPro, points: admin ? 999999 : (data.points ?? data.credits ?? 50) });
+          if (admin) {
+            console.log('[Auth] 👑 ADMIN DETECTED:', u.email, '→ Granting full access');
+          }
+
+          setUser({
+            ...u, ...data, uid: u.uid,
+            // Admin: force Pro + unlimited tokens
+            isPro: admin ? true : (data.isPro || false),
+            plan: admin ? 'pro' : (data.plan || 'guest'),
+            points: admin ? 99999 : (data.points ?? data.credits ?? 50),
+          });
           setIsAdmin(admin);
           if (activeModule === 'landing') setActiveModule('dashboard');
-        } catch (err) { console.error('[Auth]', err); setUser(u); }
-      } else { setUser(null); setIsAdmin(false); }
+        } catch (err: any) {
+          console.error('[Auth] Firestore error:', err.code, err.message, err);
+          // Still set user even if Firestore fails — so admin can at least see the app
+          const admin = u.email === ADMIN_EMAIL;
+          setUser({ ...u, uid: u.uid, isPro: admin, plan: admin ? 'pro' : 'guest', points: admin ? 99999 : 50 });
+          setIsAdmin(admin);
+        }
+      } else {
+        setUser(null);
+        setIsAdmin(false);
+      }
       setLoading(false);
     });
     return () => unsub();
@@ -419,29 +465,61 @@ function App() {
     if (!email || !password) { setAuthError(t('auth.allFieldsRequired')); return; }
     setIsLoggingIn(true);
     try {
+      console.log('[Auth] Attempting email login...', { isSignUp, email });
       if (isSignUp) await createUserWithEmailAndPassword(auth, email, password);
       else await signInWithEmailAndPassword(auth, email, password);
+      console.log('[Auth] Email login SUCCESS');
       setShowAuthModal(false); setEmail(''); setPassword('');
     } catch (error: any) {
+      console.error('[Auth] Email login FAILED:', { code: error.code, message: error.message, fullError: error });
       if (error.code === 'auth/email-already-in-use') setAuthError(t('auth.accountExists'));
       else if (['auth/wrong-password', 'auth/user-not-found', 'auth/invalid-credential'].includes(error.code)) setAuthError(t('auth.invalidCredentials'));
       else if (error.code === 'auth/weak-password') setAuthError(t('auth.weakPassword'));
-      else setAuthError(error.message);
+      else setAuthError(`[${error.code}] ${error.message}`);
     } finally { setIsLoggingIn(false); }
   };
 
-  // ── Google Sign-In with popup → redirect fallback ──
+  // ── Google Sign-In — verbose logging + redirect fallback ──
   const handleGoogleLogin = async () => {
     setAuthError(null); setIsLoggingIn(true);
+    const currentDomain = window.location.hostname;
+    console.log('[Auth] Starting Google Sign-In from domain:', currentDomain);
+    console.log('[Auth] Auth instance ready:', !!auth);
+    console.log('[Auth] Google provider ready:', !!googleProvider);
+
     try {
-      await signInWithPopup(auth, googleProvider);
+      console.log('[Auth] Trying signInWithPopup...');
+      const result = await signInWithPopup(auth, googleProvider);
+      console.log('[Auth] Google login SUCCESS:', result.user.email);
       setShowAuthModal(false);
     } catch (error: any) {
-      // Popup blocked/closed → try redirect
-      if (['auth/popup-blocked', 'auth/popup-closed-by-user', 'auth/cancelled-popup-request'].includes(error.code)) {
-        try { await signInWithRedirect(auth, googleProvider); } catch {}
+      console.error('[Auth] Google login FAILED:', {
+        code: error.code,
+        message: error.message,
+        email: error.customData?.email,
+        credential: error.credential,
+        fullError: error,
+      });
+
+      // Handle specific error codes with user-friendly messages
+      if (error.code === 'auth/unauthorized-domain') {
+        setAuthError(`Domain "${currentDomain}" is not authorized in Firebase. Add it in Firebase Console → Authentication → Settings → Authorized domains.`);
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setAuthError('Google Sign-In is not enabled in Firebase. Enable it in Firebase Console → Authentication → Sign-in method.');
+      } else if (error.code === 'auth/invalid-api-key') {
+        setAuthError('Invalid Firebase API key. Check your VITE_FIREBASE_API_KEY in Vercel environment variables.');
+      } else if (error.code === 'auth/configuration-not-found') {
+        setAuthError('Firebase auth configuration missing. Ensure Google provider is properly set up with a support email.');
+      } else if (['auth/popup-blocked', 'auth/popup-closed-by-user', 'auth/cancelled-popup-request'].includes(error.code)) {
+        console.log('[Auth] Popup failed, trying signInWithRedirect...');
+        try {
+          await signInWithRedirect(auth, googleProvider);
+        } catch (redirectErr: any) {
+          console.error('[Auth] Redirect also failed:', redirectErr);
+          setAuthError(`Popup blocked. Redirect failed: ${redirectErr.message}`);
+        }
       } else {
-        setAuthError(error.message);
+        setAuthError(`Google Sign-In error: [${error.code}] ${error.message}`);
       }
     } finally { setIsLoggingIn(false); }
   };
@@ -475,6 +553,7 @@ function App() {
       case 'membership': case 'pricing': return <MembershipPage t={t} user={user} isAdmin={isAdmin} />;
       case 'my-account': return user ? <MyAccountPage t={t} user={user} isAdmin={isAdmin} onNavigate={setActiveModule} /> : <AuthGate t={t} onSignUp={() => openAuth(true)} />;
       case 'release-hub': return <ReleaseHub />;
+      case 'media-library': return <MediaLibrary t={t} user={user} onBack={goHome} onSelectImage={(url) => { console.log('[MediaLibrary] Selected:', url); goHome(); }} />;
       case 'contact': return <ContactPage t={t} />;
       case 'faq': return <FAQPage t={t} />;
       default:
