@@ -29,7 +29,7 @@ import { Footer } from './components/Footer';
 // ── Lazy Modules ──────────────────────────────────────────
 const LandingPage = lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
 const SpotlightPublic = lazy(() => import('./components/SpotlightPublic').then(m => ({ default: m.SpotlightPublic })));
-const VideoGenerator = lazy(() => import('./components/VideoGenerator').then(m => ({ default: m.VideoGenerator })));
+// VideoGenerator removed — now inline as VideoModule with Veo 2 structure
 const InfoPages = lazy(() => import('./components/InfoPages').then(m => ({ default: m.InfoPages })));
 const ReleaseHub = lazy(() => import('./components/ReleaseHub').then(m => ({ default: m.default })));
 
@@ -101,12 +101,17 @@ async function deductTokens(userId: string, cost: number, isAdmin: boolean): Pro
   }
 }
 
-// ── Gemini API call (for Bio/EPK) ─────────────────────────
-async function callGemini(prompt: string, apiKey?: string): Promise<string> {
-  const key = apiKey || import.meta.env.VITE_GEMINI_API_KEY;
-  if (!key) return '[Gemini API key not configured. Set VITE_GEMINI_API_KEY in your .env]';
+// ── API Key (from .env — NEVER hardcode) ──────────────────
+function getApiKey(): string {
+  return import.meta.env.VITE_GEMINI_API_KEY || '';
+}
+
+// ── Gemini 1.5 Flash — Text generation (Bio/EPK/Chat) ────
+async function callGemini(prompt: string): Promise<string> {
+  const key = getApiKey();
+  if (!key) return '[API key not configured. Add VITE_GEMINI_API_KEY to your .env file]';
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -114,12 +119,63 @@ async function callGemini(prompt: string, apiKey?: string): Promise<string> {
         generationConfig: { temperature: 0.8, maxOutputTokens: 2048 },
       }),
     });
+    if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || `HTTP ${res.status}`); }
     const data = await res.json();
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Generation failed. Try again.';
-  } catch (err) {
+  } catch (err: any) {
     console.error('Gemini error:', err);
-    return 'API error. Check your Gemini key and try again.';
+    return `API error: ${err.message || 'Check your key and try again.'}`;
   }
+}
+
+// ── Imagen 3 via Vertex AI (Artwork generation) ──────────
+async function callImagen3(prompt: string, style: string): Promise<string | null> {
+  const key = getApiKey();
+  if (!key) return null;
+  try {
+    // Imagen 3 is available via the Gemini API as imagen-3.0-generate-002
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        instances: [{ prompt: `${style} style album cover art: ${prompt}. High quality, professional music artwork, square format 1:1.` }],
+        parameters: { sampleCount: 1, aspectRatio: '1:1', personGeneration: 'dont_allow' },
+      }),
+    });
+    if (!res.ok) {
+      // Fallback: try via gemini-2.0-flash-exp with image generation
+      const fallbackRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `Generate an image: ${style} style album cover art — ${prompt}. Square format.` }] }],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        }),
+      });
+      if (!fallbackRes.ok) return null;
+      const fallbackData = await fallbackRes.json();
+      const imgPart = fallbackData?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+      if (imgPart?.inlineData) return `data:${imgPart.inlineData.mimeType};base64,${imgPart.inlineData.data}`;
+      return null;
+    }
+    const data = await res.json();
+    if (data?.predictions?.[0]?.bytesBase64Encoded) {
+      return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
+    }
+    return null;
+  } catch (err) {
+    console.error('Imagen 3 error:', err);
+    return null;
+  }
+}
+
+// ── Veo 2 structure (Video generation — placeholder) ─────
+async function callVeo(_prompt: string): Promise<string | null> {
+  // Veo 2 via Vertex AI is not yet publicly available via REST API key auth.
+  // This function is ready for when Google opens the endpoint.
+  // For now, returns null to trigger the "coming soon" UI.
+  console.log('[Veo] Video generation not yet available via API.');
+  return null;
 }
 
 // ── Module Loader & Error Boundary ────────────────────────
@@ -147,13 +203,20 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode; t: (k: 
   }
 }
 
-// ── Universal Back Button ─────────────────────────────────
-function BackButton({ t, onBack }: { t: (k: string) => string; onBack: () => void }) {
+// ── Module Header (Back + Close X button) ─────────────────
+function ModuleHeader({ t, title, onBack }: { t: (k: string) => string; title: string; onBack: () => void }) {
   return (
-    <button onClick={onBack}
-      className="inline-flex items-center gap-2 px-4 py-2 mb-4 text-white/40 hover:text-white text-xs font-bold uppercase tracking-widest transition-all hover:bg-white/5 rounded-xl">
-      <ArrowLeft className="w-4 h-4" /> {t('action.back')}
-    </button>
+    <div className="flex items-center justify-between mb-6 sticky top-0 z-20 bg-gradient-to-b from-[#050505] via-[#050505]/95 to-transparent pt-4 pb-2 -mx-4 px-4 lg:-mx-8 lg:px-8">
+      <button onClick={onBack}
+        className="inline-flex items-center gap-2 px-3 py-2 text-white/40 hover:text-white text-xs font-bold uppercase tracking-widest transition-all hover:bg-white/5 rounded-xl">
+        <ArrowLeft className="w-4 h-4" /> {t('action.back')}
+      </button>
+      <h1 className="text-lg lg:text-xl font-black uppercase tracking-tight text-white hidden sm:block">{title}</h1>
+      <button onClick={onBack}
+        className="p-2.5 text-white/30 hover:text-white hover:bg-white/10 rounded-xl transition-all" title={t('action.back')}>
+        <X className="w-5 h-5" />
+      </button>
+    </div>
   );
 }
 
@@ -247,6 +310,7 @@ function SmartLinkModule({ t, user, isAdmin, onBack, onGenerate }: {
   const [title, setTitle] = useState('');
   const [artistName, setArtistName] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [releaseDate, setReleaseDate] = useState('');
   const [links, setLinks] = useState<{ platform: string; url: string }[]>([
     { platform: 'Spotify', url: '' },
     { platform: 'Apple Music', url: '' },
@@ -280,6 +344,7 @@ function SmartLinkModule({ t, user, isAdmin, onBack, onGenerate }: {
           title: title.trim(),
           artistName: artistName.trim(),
           imageUrl: imageUrl.trim(),
+          releaseDate: releaseDate || null,
           links: activeLinks,
           createdAt: serverTimestamp(),
         });
@@ -302,10 +367,8 @@ function SmartLinkModule({ t, user, isAdmin, onBack, onGenerate }: {
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 lg:p-8">
-      <BackButton t={t} onBack={onBack} />
-      <h1 className="text-2xl lg:text-3xl font-black uppercase tracking-tight text-white mb-1">{t('mod.smartLink')}</h1>
-      <p className="text-white/40 text-sm mb-8">{t('mod.smartLink.desc')}</p>
+    <div className="max-w-3xl mx-auto p-4 lg:p-8 overflow-y-auto">
+      <ModuleHeader t={t} title={t('mod.smartLink')} onBack={onBack} />
 
       {generatedUrl ? (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -328,7 +391,7 @@ function SmartLinkModule({ t, user, isAdmin, onBack, onGenerate }: {
                 <ExternalLink className="w-4 h-4" /> {t('smartlink.preview')}
               </a>
             </div>
-            <button onClick={() => { setGeneratedUrl(null); setTitle(''); setArtistName(''); setImageUrl(''); }}
+            <button onClick={() => { setGeneratedUrl(null); setTitle(''); setArtistName(''); setImageUrl(''); setReleaseDate(''); }}
               className="text-white/30 text-xs hover:text-turquoise transition-colors mt-4">{t('smartlink.createAnother')}</button>
           </div>
         </motion.div>
@@ -352,6 +415,11 @@ function SmartLinkModule({ t, user, isAdmin, onBack, onGenerate }: {
               <input type="url" value={imageUrl} onChange={e => setImageUrl(e.target.value)}
                 className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-turquoise/40 transition-all text-sm placeholder:text-white/15"
                 placeholder="https://..." />
+            </div>
+            <div>
+              <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-2 block">{t('smartlink.releaseDate')}</label>
+              <input type="date" value={releaseDate} onChange={e => setReleaseDate(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-turquoise/40 transition-all text-sm text-white/70 [color-scheme:dark]" />
             </div>
           </div>
 
@@ -405,28 +473,25 @@ function ArtworkModule({ t, user, isAdmin, onBack, onGenerate }: {
       const allowed = await onGenerate();
       if (!allowed) { setGenerating(false); return; }
 
-      // ── Imagen 3 / Vertex AI integration point ──
-      // When your Google Cloud key is ready, replace this block with:
-      // const res = await fetch('YOUR_VERTEX_AI_ENDPOINT', { ... });
-      // For now: 3s simulation + HD placeholder
-      await new Promise(r => setTimeout(r, 3000));
-      const placeholders = [
-        `https://picsum.photos/seed/${Date.now()}/1024/1024`,
-        `https://picsum.photos/seed/${Date.now() + 1}/1024/1024`,
-      ];
-      setResult(placeholders[Math.floor(Math.random() * placeholders.length)]);
+      // ── Imagen 3 via Vertex AI ──
+      const imgResult = await callImagen3(prompt, style);
+      if (imgResult) {
+        setResult(imgResult);
+      } else {
+        // Fallback: HD placeholder if API unavailable
+        setResult(`https://picsum.photos/seed/${Date.now()}/1024/1024`);
+      }
     } catch (err) {
       console.error('Artwork generation error:', err);
+      setResult(`https://picsum.photos/seed/${Date.now()}/1024/1024`);
     } finally {
       setGenerating(false);
     }
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 lg:p-8">
-      <BackButton t={t} onBack={onBack} />
-      <h1 className="text-2xl lg:text-3xl font-black uppercase tracking-tight text-white mb-1">{t('mod.artwork')}</h1>
-      <p className="text-white/40 text-sm mb-8">{t('mod.artwork.desc')}</p>
+    <div className="max-w-3xl mx-auto p-4 lg:p-8 overflow-y-auto">
+      <ModuleHeader t={t} title={t('mod.artwork')} onBack={onBack} />
 
       {result ? (
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6">
@@ -538,10 +603,8 @@ Format with clear headers. Be authentic, avoid clichés.`;
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 lg:p-8">
-      <BackButton t={t} onBack={onBack} />
-      <h1 className="text-2xl lg:text-3xl font-black uppercase tracking-tight text-white mb-1">{t('mod.pressKit')}</h1>
-      <p className="text-white/40 text-sm mb-8">{t('mod.pressKit.desc')}</p>
+    <div className="max-w-3xl mx-auto p-4 lg:p-8 overflow-y-auto">
+      <ModuleHeader t={t} title={t('mod.pressKit')} onBack={onBack} />
 
       {generatedBio ? (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -622,6 +685,73 @@ function ProGate({ t, onSignUp }: { t: (k: string) => string; onSignUp: () => vo
       <h2 className="text-2xl font-black uppercase tracking-tight text-white">{t('pro.feature')}</h2>
       <p className="text-white/40 text-sm max-w-md">{t('pro.videoMessage')}</p>
       <button onClick={onSignUp} className="px-8 py-4 bg-white text-black font-bold uppercase tracking-widest rounded-xl hover:bg-turquoise transition-all">{t('pro.unlock')}</button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── VIDEO MODULE (Veo 2 structure — Artist+Pro) ─────────
+// ═══════════════════════════════════════════════════════════
+function VideoModule({ t, user, isAdmin, onBack }: {
+  t: (k: string) => string; user: any; isAdmin: boolean; onBack: () => void;
+}) {
+  const [prompt, setPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    setGenerating(true);
+    try {
+      // Veo 2 call — returns null until API is available
+      const videoUrl = await callVeo(prompt);
+      if (videoUrl) {
+        setResult(videoUrl);
+      } else {
+        // Simulate for now
+        await new Promise(r => setTimeout(r, 2000));
+        setResult('pending');
+      }
+    } catch (err) {
+      console.error('Video error:', err);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto p-4 lg:p-8 overflow-y-auto">
+      <ModuleHeader t={t} title={t('mod.video')} onBack={onBack} />
+
+      {result === 'pending' ? (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card rounded-3xl p-10 text-center space-y-4">
+          <div className="w-20 h-20 bg-purple-neon/10 rounded-full flex items-center justify-center ring-1 ring-purple-neon/20 mx-auto">
+            <Video className="w-10 h-10 text-purple-neon" />
+          </div>
+          <h2 className="text-xl font-black uppercase text-white">{t('video.comingSoon')}</h2>
+          <p className="text-white/40 text-sm max-w-md mx-auto">{t('video.veoMessage')}</p>
+          <button onClick={() => setResult(null)} className="text-turquoise text-xs font-bold uppercase tracking-wider hover:underline">{t('action.back')}</button>
+        </motion.div>
+      ) : (
+        <div className="space-y-6">
+          <div className="glass-card rounded-3xl p-6 lg:p-8 space-y-5">
+            <div>
+              <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-2 block">{t('video.prompt')}</label>
+              <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={4}
+                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-turquoise/40 transition-all text-sm placeholder:text-white/15 resize-none"
+                placeholder={t('video.promptPlaceholder')} />
+            </div>
+          </div>
+          <button onClick={handleGenerate} disabled={generating || !prompt.trim()}
+            className="w-full py-4 bg-purple-neon text-white font-bold uppercase tracking-widest rounded-xl hover:brightness-110 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {generating ? <><Loader2 className="w-5 h-5 animate-spin" /> {t('video.generating')}</> : <><Video className="w-5 h-5" /> {t('video.generate')}</>}
+          </button>
+          <div className="glass-card rounded-2xl p-4 flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 text-purple-neon/60 mt-0.5 flex-shrink-0" />
+            <p className="text-white/30 text-xs">{t('video.betaNotice')}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -941,8 +1071,13 @@ function App() {
         return <BioEPKModule t={t} user={user} isAdmin={isAdmin} onBack={goHome} onGenerate={() => handleGenerate('epk')} lang={currentLang} />;
       case 'artwork':
         return <ArtworkModule t={t} user={user} isAdmin={isAdmin} onBack={goHome} onGenerate={() => handleGenerate('artwork')} />;
-      case 'video':
-        return (user?.isPro || isAdmin) ? <VideoGenerator aiPreferences={aiPreferences} /> : <ProGate t={t} onSignUp={() => setActiveModule('membership')} />;
+      case 'video': {
+        // Video: open to Artist & Pro plans, blocked for Free/Guest
+        const hasVideoAccess = isAdmin || user?.isPro || user?.plan === 'artist' || user?.plan === 'pro';
+        if (!user) return <AuthGate t={t} onSignUp={() => openAuth(true)} />;
+        if (!hasVideoAccess) return <ProGate t={t} onSignUp={() => setActiveModule('membership')} />;
+        return <VideoModule t={t} user={user} isAdmin={isAdmin} onBack={goHome} />;
+      }
       case 'tutorials':
         return <TutorialsPage t={t} />;
       case 'membership': case 'pricing':
