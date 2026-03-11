@@ -17,7 +17,7 @@ import {
   sendPasswordResetEmail
 } from 'firebase/auth';
 import {
-  doc, getDoc, setDoc, updateDoc, increment, serverTimestamp
+  doc, getDoc, setDoc, updateDoc, increment, serverTimestamp, collection
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from './firebase';
 import { AIPreferences, DEFAULT_AI_PREFERENCES } from './types';
@@ -272,23 +272,104 @@ function VideoModule({ t, onBack }: { t: (k: string) => string; onBack: () => vo
 }
 
 // ── My Account ────────────────────────────────────────────
-function MyAccountPage({ t, user, isAdmin, onNavigate }: { t: (k: string) => string; user: any; isAdmin: boolean; onNavigate: (id: ModuleId) => void }) {
+function MyAccountPage({
+  t,
+  user,
+  isAdmin,
+  onNavigate
+}: {
+  t: (k: string) => string;
+  user: any;
+  isAdmin: boolean;
+  onNavigate: (id: ModuleId) => void;
+}) {
   if (!user) return null;
-  const planLabel = isAdmin ? t('account.admin') : user.isPro ? t('account.planPro') : user.plan === 'artist' ? t('account.planArtist') : t('account.planGuest');
+
+  const planLabel = isAdmin
+    ? t('account.admin')
+    : user.isPro
+      ? t('account.planPro')
+      : user.plan === 'artist'
+        ? t('account.planArtist')
+        : t('account.planGuest');
+
+  const accountItems = [
+    { label: t('account.email'), value: user.email || '—', icon: Mail },
+    { label: 'First name', value: user.firstName || '—', icon: User },
+    { label: 'Last name', value: user.lastName || '—', icon: User },
+    { label: 'Artist name', value: user.artistName || '—', icon: Sparkles },
+    { label: 'Country', value: user.country || '—', icon: Globe },
+    { label: t('account.currentPlan'), value: planLabel, icon: CreditCard },
+    { label: t('account.role'), value: isAdmin ? t('account.admin') : t('account.user'), icon: Shield },
+    {
+      label: t('account.memberSince'),
+      value: user.createdAt?.toDate?.()?.toLocaleDateString?.() || '—',
+      icon: Clock
+    }
+  ];
+
   return (
     <div className="max-w-2xl mx-auto p-6 lg:p-10 space-y-8 overflow-y-auto">
       <div>
-        <h1 className="text-3xl font-black uppercase tracking-tight text-white">{t('account.title')}</h1>
-        {isAdmin && <span className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 bg-red-500/10 border border-red-500/20 rounded-full text-red-400 text-[10px] font-bold uppercase tracking-widest"><Shield className="w-3 h-3" /> {t('account.admin')}</span>}
+        <h1 className="text-3xl font-black uppercase tracking-tight text-white">
+          {t('account.title')}
+        </h1>
+        {isAdmin && (
+          <span className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 bg-red-500/10 border border-red-500/20 rounded-full text-red-400 text-[10px] font-bold uppercase tracking-widest">
+            <Shield className="w-3 h-3" /> {t('account.admin')}
+          </span>
+        )}
       </div>
-      <div className="glass-card rounded-3xl p-8 lg:p-10 text-center"><Coins className="w-8 h-8 text-gold mx-auto mb-3" /><p className="text-6xl lg:text-7xl font-black text-gold">{isAdmin ? '∞' : user.points}</p><p className="text-white/30 text-sm font-bold uppercase tracking-widest mt-2">{t('account.tokensRemaining')}</p></div>
+
+      <div className="glass-card rounded-3xl p-8 lg:p-10 text-center">
+        <Coins className="w-8 h-8 text-gold mx-auto mb-3" />
+        <p className="text-6xl lg:text-7xl font-black text-gold">
+          {isAdmin ? '∞' : user.points}
+        </p>
+        <p className="text-white/30 text-sm font-bold uppercase tracking-widest mt-2">
+          {t('account.tokensRemaining')}
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {[{ label: t('account.email'), value: user.email || '—', icon: Mail }, { label: t('account.currentPlan'), value: planLabel, icon: CreditCard }, { label: t('account.role'), value: isAdmin ? t('account.admin') : t('account.user'), icon: Shield }, { label: t('account.memberSince'), value: user.createdAt?.toDate?.()?.toLocaleDateString?.() || '—', icon: Clock }].map((item, i) => (
-          <div key={i} className="glass-card rounded-2xl p-5 flex items-start gap-4"><div className="p-2 rounded-xl bg-white/5"><item.icon className="w-4 h-4 text-white/30" /></div><div><p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">{item.label}</p><p className="text-sm text-white font-semibold mt-0.5 break-all">{item.value}</p></div></div>
+        {accountItems.map((item, i) => (
+          <div
+            key={i}
+            className="glass-card rounded-2xl p-5 flex items-start gap-4"
+          >
+            <div className="p-2 rounded-xl bg-white/5">
+              <item.icon className="w-4 h-4 text-white/30" />
+            </div>
+            <div>
+              <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">
+                {item.label}
+              </p>
+              <p className="text-sm text-white font-semibold mt-0.5 break-all">
+                {item.value}
+              </p>
+            </div>
+          </div>
         ))}
       </div>
-      <div className="glass-card rounded-3xl p-6"><h3 className="text-sm font-black uppercase tracking-widest text-white/60 mb-4">{t('account.history')}</h3><div className="text-center py-8"><Clock className="w-8 h-8 text-white/10 mx-auto mb-3" /><p className="text-white/20 text-xs">{t('account.historyEmpty')}</p></div></div>
-      {!isAdmin && <button onClick={() => onNavigate('membership')} className="w-full py-4 bg-turquoise text-black font-bold uppercase tracking-widest rounded-xl hover:brightness-110 transition-all">{t('account.managePlan')}</button>}
+
+      <div className="glass-card rounded-3xl p-6">
+        <h3 className="text-sm font-black uppercase tracking-widest text-white/60 mb-4">
+          {t('account.history')}
+        </h3>
+        <div className="text-center py-8">
+          <Clock className="w-8 h-8 text-white/10 mx-auto mb-3" />
+          <p className="text-white/20 text-xs">{t('account.historyEmpty')}</p>
+        </div>
+      </div>
+
+      {!isAdmin && (
+        <button
+          onClick={() => onNavigate('membership')}
+          className="w-full py-4 bg-turquoise text-black font-bold uppercase tracking-widest rounded-xl hover:brightness-110 transition-all"
+        >
+          {t('account.managePlan')}
+        </button>
+      )}
     </div>
   );
 }
@@ -320,13 +401,38 @@ function MembershipPage({ t, user, isAdmin }: { t: (k: string) => string; user: 
 
 // ── Contact, FAQ, Tutorials ───────────────────────────────
 function ContactPage({ t }: { t: (k: string) => string }) {
-  const [subject, setSubject] = useState(''); const [message, setMessage] = useState(''); const [sending, setSending] = useState(false); const [sent, setSent] = useState(false);
-  const handleSend = async (e: React.FormEvent) => { e.preventDefault(); if (!subject.trim() || !message.trim()) return; setSending(true); await new Promise(r => setTimeout(r, 1200)); setSending(false); setSent(true); setSubject(''); setMessage(''); };
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subject.trim() || !message.trim()) return;
+    setSending(true);
+    await new Promise(r => setTimeout(r, 1200));
+    setSending(false);
+    setSent(true);
+    setSubject('');
+    setMessage('');
+  };
+
   return (
     <div className="max-w-2xl mx-auto p-6 lg:p-10 overflow-y-auto">
       <h1 className="text-3xl font-black uppercase tracking-tight text-white mb-2">{t('contact.title')}</h1><p className="text-white/40 text-sm mb-8">{t('contact.subtitle')}</p>
-      {sent ? (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card rounded-3xl p-10 text-center space-y-4"><div className="w-16 h-16 bg-turquoise/10 rounded-full flex items-center justify-center ring-1 ring-turquoise/20 mx-auto"><Check className="w-8 h-8 text-turquoise" /></div><p className="text-white font-bold">{t('contact.sent')}</p><button onClick={() => setSent(false)} className="text-turquoise text-xs font-bold uppercase tracking-wider hover:underline">{t('contact.send')}</button></motion.div>
-      ) : (<form onSubmit={handleSend} className="glass-card rounded-3xl p-6 lg:p-8 space-y-5"><div><label className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-2 block">{t('contact.subject')}</label><input type="text" value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15" placeholder={t('contact.subjectPlaceholder')} /></div><div><label className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-2 block">{t('contact.message')}</label><textarea value={message} onChange={e => setMessage(e.target.value)} rows={6} className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15 resize-none" placeholder={t('contact.messagePlaceholder')} /></div><button type="submit" disabled={sending || !subject.trim() || !message.trim()} className="w-full py-3 bg-turquoise text-black font-bold uppercase tracking-widest rounded-xl hover:brightness-110 disabled:opacity-50 flex items-center justify-center gap-2">{sending ? <><Loader2 className="w-4 h-4 animate-spin" /> {t('contact.sending')}</> : <><Send className="w-4 h-4" /> {t('contact.send')}</>}</button></form>)}
+      {sent ? (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card rounded-3xl p-10 text-center space-y-4">
+          <div className="w-16 h-16 bg-turquoise/10 rounded-full flex items-center justify-center ring-1 ring-turquoise/20 mx-auto"><Check className="w-8 h-8 text-turquoise" /></div>
+          <p className="text-white font-bold">{t('contact.sent')}</p>
+          <button onClick={() => setSent(false)} className="text-turquoise text-xs font-bold uppercase tracking-wider hover:underline">{t('contact.send')}</button>
+        </motion.div>
+      ) : (
+        <form onSubmit={handleSend} className="glass-card rounded-3xl p-6 lg:p-8 space-y-5">
+          <div><label className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-2 block">{t('contact.subject')}</label><input type="text" value={subject} onChange={e => setSubject(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15" placeholder={t('contact.subjectPlaceholder')} /></div>
+          <div><label className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-2 block">{t('contact.message')}</label><textarea value={message} onChange={e => setMessage(e.target.value)} rows={6} className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15 resize-none" placeholder={t('contact.messagePlaceholder')} /></div>
+          <button type="submit" disabled={sending || !subject.trim() || !message.trim()} className="w-full py-3 bg-turquoise text-black font-bold uppercase tracking-widest rounded-xl hover:brightness-110 disabled:opacity-50 flex items-center justify-center gap-2">{sending ? <><Loader2 className="w-4 h-4 animate-spin" /> {t('contact.sending')}</> : <><Send className="w-4 h-4" /> {t('contact.send')}</>}</button>
+        </form>
+      )}
     </div>
   );
 }
@@ -384,6 +490,12 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [artistName, setArtistName] = useState('');
+  const [country, setCountry] = useState('');
+
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
@@ -408,7 +520,7 @@ function App() {
       setLoading(false);
       return;
     }
-    // Handle redirect result (for mobile/blocked popup)
+
     getRedirectResult(auth)
       .then((result) => { if (result?.user) console.log('[Auth] Redirect result:', result.user.email); })
       .catch((err) => console.error('[Auth] Redirect result error:', err.code, err.message));
@@ -420,6 +532,7 @@ function App() {
           const ref = doc(db, 'users', u.uid);
           const snap = await getDoc(ref);
           let data: any;
+
           if (snap.exists()) {
             data = snap.data();
             console.log('[Auth] User doc found:', { plan: data.plan, points: data.points, isPro: data.isPro });
@@ -428,6 +541,10 @@ function App() {
             data = {
               email: u.email,
               displayName: u.displayName || '',
+              firstName: '',
+              lastName: '',
+              artistName: '',
+              country: '',
               avatar: u.photoURL || '',
               credits: 50,
               points: 50,
@@ -438,26 +555,36 @@ function App() {
             await setDoc(ref, data);
           }
 
-          // ── ADMIN HARDCODE ──
           const admin = u.email === ADMIN_EMAIL;
           if (admin) {
             console.log('[Auth] 👑 ADMIN DETECTED:', u.email, '→ Granting full access');
           }
 
           setUser({
-            ...u, ...data, uid: u.uid,
-            // Admin: force Pro + unlimited tokens
+            ...u,
+            ...data,
+            uid: u.uid,
             isPro: admin ? true : (data.isPro || false),
             plan: admin ? 'pro' : (data.plan || 'guest'),
             points: admin ? 99999 : (data.points ?? data.credits ?? 50),
           });
           setIsAdmin(admin);
+
           if (activeModule === 'landing') setActiveModule('dashboard');
         } catch (err: any) {
           console.error('[Auth] Firestore error:', err.code, err.message, err);
-          // Still set user even if Firestore fails — so admin can at least see the app
           const admin = u.email === ADMIN_EMAIL;
-          setUser({ ...u, uid: u.uid, isPro: admin, plan: admin ? 'pro' : 'guest', points: admin ? 99999 : 50 });
+          setUser({
+            ...u,
+            uid: u.uid,
+            firstName: '',
+            lastName: '',
+            artistName: '',
+            country: '',
+            isPro: admin,
+            plan: admin ? 'pro' : 'guest',
+            points: admin ? 99999 : 50
+          });
           setIsAdmin(admin);
         }
       } else {
@@ -466,12 +593,16 @@ function App() {
       }
       setLoading(false);
     });
+
     return () => unsub();
   }, []);
 
   const refreshUserPoints = async () => {
     if (!user?.uid || isAdmin) return;
-    try { const snap = await getDoc(doc(db, 'users', user.uid)); if (snap.exists()) setUser((p: any) => p ? { ...p, points: snap.data().points ?? snap.data().credits ?? 0 } : p); } catch {}
+    try {
+      const snap = await getDoc(doc(db, 'users', user.uid));
+      if (snap.exists()) setUser((p: any) => p ? { ...p, points: snap.data().points ?? snap.data().credits ?? 0 } : p);
+    } catch {}
   };
 
   const handleGenerate = async (moduleId: string): Promise<boolean> => {
@@ -486,27 +617,80 @@ function App() {
   };
 
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault(); setAuthError(null);
-    if (!email || !password) { setAuthError(t('auth.allFieldsRequired')); return; }
+    e.preventDefault();
+    setAuthError(null);
+
+    if (!email || !password) {
+      setAuthError('Email and password are required.');
+      return;
+    }
+
+    if (isSignUp && !artistName.trim()) {
+      setAuthError('Artist name is required.');
+      return;
+    }
+
     setIsLoggingIn(true);
+
     try {
-      console.log('[Auth] Attempting email login...', { isSignUp, email });
-      if (isSignUp) await createUserWithEmailAndPassword(auth, email, password);
-      else await signInWithEmailAndPassword(auth, email, password);
-      console.log('[Auth] Email login SUCCESS');
-      setShowAuthModal(false); setEmail(''); setPassword('');
-    } catch (error: any) {
-      console.error('[Auth] Email login FAILED:', { code: error.code, message: error.message, fullError: error });
-      if (error.code === 'auth/email-already-in-use') setAuthError(t('auth.accountExists'));
-      else if (['auth/wrong-password', 'auth/user-not-found', 'auth/invalid-credential'].includes(error.code)) setAuthError(t('auth.invalidCredentials'));
-      else if (error.code === 'auth/weak-password') setAuthError(t('auth.weakPassword'));
-      else setAuthError(`[${error.code}] ${error.message}`);
-    } finally { setIsLoggingIn(false); }
+      if (isSignUp) {
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+
+        await setDoc(doc(db, 'users', cred.user.uid), {
+          email,
+          displayName: `${firstName} ${lastName}`.trim(),
+          firstName,
+          lastName,
+          artistName: artistName.trim(),
+          country,
+          points: 50,
+          credits: 50,
+          isPro: false,
+          plan: 'guest',
+          createdAt: serverTimestamp(),
+        });
+
+        const safeSlug = `${artistName
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')}-${cred.user.uid.slice(0, 6)}`;
+
+        await setDoc(doc(collection(db, 'smartlinks')), {
+          uid: cred.user.uid,
+          artistName: artistName.trim(),
+          email,
+          slug: safeSlug,
+          bio: '',
+          avatar: '',
+          links: [],
+          isPublic: true,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+
+      setShowAuthModal(false);
+      setEmail('');
+      setPassword('');
+      setFirstName('');
+      setLastName('');
+      setArtistName('');
+      setCountry('');
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   // ── Google Sign-In — verbose logging + redirect fallback ──
   const handleGoogleLogin = async () => {
-    setAuthError(null); setIsLoggingIn(true);
+    setAuthError(null);
+    setIsLoggingIn(true);
     const currentDomain = window.location.hostname;
     console.log('[Auth] Starting Google Sign-In from domain:', currentDomain);
     console.log('[Auth] Auth instance ready:', !!auth);
@@ -526,7 +710,6 @@ function App() {
         fullError: error,
       });
 
-      // Handle specific error codes with user-friendly messages
       if (error.code === 'auth/unauthorized-domain') {
         setAuthError(`Domain "${currentDomain}" is not authorized in Firebase. Add it in Firebase Console → Authentication → Settings → Authorized domains.`);
       } else if (error.code === 'auth/operation-not-allowed') {
@@ -546,7 +729,9 @@ function App() {
       } else {
         setAuthError(`Google Sign-In error: [${error.code}] ${error.message}`);
       }
-    } finally { setIsLoggingIn(false); }
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const handleForgotPassword = async () => {
@@ -554,8 +739,21 @@ function App() {
     try { await sendPasswordResetEmail(auth, email); setResetSent(true); setAuthError(null); } catch (e: any) { setAuthError(e.message); }
   };
 
-  const handleLogout = async () => { await signOut(auth); setIsAdmin(false); setActiveModule('landing'); setIsMenuOpen(false); navigate('/'); };
-  const openAuth = (signUp: boolean) => { setShowAuthModal(true); setIsSignUp(signUp); setAuthError(null); setResetSent(false); setIsMenuOpen(false); };
+  const handleLogout = async () => {
+    await signOut(auth);
+    setIsAdmin(false);
+    setActiveModule('landing');
+    setIsMenuOpen(false);
+    navigate('/');
+  };
+
+  const openAuth = (signUp: boolean) => {
+    setShowAuthModal(true);
+    setIsSignUp(signUp);
+    setAuthError(null);
+    setResetSent(false);
+    setIsMenuOpen(false);
+  };
 
   if (loading) return (
     <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center gap-4">
@@ -563,29 +761,44 @@ function App() {
       <p className="text-white/20 text-xs font-bold uppercase tracking-widest">{t('brand.tagline')}</p>
     </div>
   );
-  if (location.pathname.startsWith('/s/') || location.pathname.startsWith('/l/')) return <Suspense fallback={<ModuleLoader />}><SpotlightPublic /></Suspense>;
 
-  // ── Module Renderer ──
+  if (location.pathname.startsWith('/s/') || location.pathname.startsWith('/l/')) {
+    return <Suspense fallback={<ModuleLoader />}><SpotlightPublic /></Suspense>;
+  }
+
   function renderModule() {
     if (activeModule === 'landing' && !user) return <LandingPage t={t} onGetStarted={() => setActiveModule('dashboard')} />;
     if (activeModule === 'landing' || activeModule === 'dashboard') return <Dashboard t={t} onNavigate={setActiveModule} user={user} onSignUp={() => openAuth(true)} />;
+
     switch (activeModule) {
-      case 'smart-link': return <SmartLinkPro t={t} user={user} isAdmin={isAdmin} onBack={goHome} onGenerate={() => handleGenerate('smart-link')} />;
-      case 'epk': case 'bio': return <EPKAssistant t={t} user={user} isAdmin={isAdmin} onBack={goHome} onGenerate={() => handleGenerate('epk')} lang={currentLang} />;
-      case 'artwork': return <ArtworkStudio t={t} user={user} isAdmin={isAdmin} onBack={goHome} onGenerate={() => handleGenerate('artwork')} />;
+      case 'smart-link':
+        return <SmartLinkPro t={t} user={user} isAdmin={isAdmin} onBack={goHome} onGenerate={() => handleGenerate('smart-link')} />;
+      case 'epk':
+      case 'bio':
+        return <EPKAssistant t={t} user={user} isAdmin={isAdmin} onBack={goHome} onGenerate={() => handleGenerate('epk')} lang={currentLang} />;
+      case 'artwork':
+        return <ArtworkStudio t={t} user={user} isAdmin={isAdmin} onBack={goHome} onGenerate={() => handleGenerate('artwork')} />;
       case 'video': {
         const hasAccess = isAdmin || user?.isPro || user?.plan === 'artist' || user?.plan === 'pro';
         if (!user) return <AuthGate t={t} onSignUp={() => openAuth(true)} />;
         if (!hasAccess) return <ProGate t={t} onUpgrade={() => setActiveModule('membership')} />;
         return <VideoModule t={t} onBack={goHome} />;
       }
-      case 'tutorials': return <TutorialsPage t={t} onNavigate={setActiveModule} />;
-      case 'membership': case 'pricing': return <MembershipPage t={t} user={user} isAdmin={isAdmin} />;
-      case 'my-account': return user ? <MyAccountPage t={t} user={user} isAdmin={isAdmin} onNavigate={setActiveModule} /> : <AuthGate t={t} onSignUp={() => openAuth(true)} />;
-      case 'release-hub': return <ReleaseHub />;
-      case 'media-library': return <MediaLibrary t={t} user={user} onBack={goHome} onSelectImage={(url) => { console.log('[MediaLibrary] Selected:', url); goHome(); }} />;
-      case 'contact': return <ContactPage t={t} />;
-      case 'faq': return <FAQPage t={t} />;
+      case 'tutorials':
+        return <TutorialsPage t={t} onNavigate={setActiveModule} />;
+      case 'membership':
+      case 'pricing':
+        return <MembershipPage t={t} user={user} isAdmin={isAdmin} />;
+      case 'my-account':
+        return user ? <MyAccountPage t={t} user={user} isAdmin={isAdmin} onNavigate={setActiveModule} /> : <AuthGate t={t} onSignUp={() => openAuth(true)} />;
+      case 'release-hub':
+        return <ReleaseHub />;
+      case 'media-library':
+        return <MediaLibrary t={t} user={user} onBack={goHome} onSelectImage={(url) => { console.log('[MediaLibrary] Selected:', url); goHome(); }} />;
+      case 'contact':
+        return <ContactPage t={t} />;
+      case 'faq':
+        return <FAQPage t={t} />;
       default:
         if (['about', 'privacy', 'terms'].includes(activeModule)) return <InfoPages page={activeModule as any} lang={currentLang} />;
         return <Dashboard t={t} onNavigate={setActiveModule} user={user} onSignUp={() => openAuth(true)} />;
@@ -594,33 +807,143 @@ function App() {
 
   const showAppShell = activeModule !== 'landing' || user;
 
-  // ── Auth Modal ──
   function renderAuthModal() {
-    return (<AnimatePresence>{showAuthModal && (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm" onClick={() => setShowAuthModal(false)}>
-        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} onClick={e => e.stopPropagation()} className="w-full max-w-md bg-[#0B0E14] border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-turquoise to-purple-neon" />
-          <div className="text-center mb-6"><img src="/logo-musaic.jpeg" alt="Musaic AI" className="w-14 h-14 rounded-2xl mx-auto mb-3 shadow-lg" /><h2 className="text-xl font-black uppercase tracking-tight text-white">{isSignUp ? t('auth.joinClub') : t('auth.accessStudio')}</h2><p className="text-white/40 text-[10px] font-medium tracking-wider uppercase mt-1">{isSignUp ? t('auth.freeTokensOnSignup') : t('auth.signIn')}</p></div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            {authError && <div className="bg-red-500/10 border border-red-500/30 p-3 rounded-xl flex items-start gap-2"><AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" /><p className="text-red-400/80 text-xs">{authError}</p></div>}
-            {resetSent && <div className="bg-turquoise/10 border border-turquoise/30 p-3 rounded-xl text-turquoise text-xs">{t('auth.resetSent')}</div>}
-            <div className="space-y-3">
-              <div className="relative group"><Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-turquoise" /><input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15" placeholder={t('auth.emailPlaceholder')} /></div>
-              <div className="relative group"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-turquoise" /><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15" placeholder={t('auth.passwordPlaceholder')} /></div>
-              {!isSignUp && <button type="button" onClick={handleForgotPassword} className="text-[10px] text-white/30 hover:text-turquoise ml-1">{t('auth.forgotPassword')}</button>}
-            </div>
-            <button type="submit" disabled={isLoggingIn} className="w-full bg-turquoise text-black font-bold uppercase tracking-widest py-3 rounded-xl hover:brightness-110 disabled:opacity-50 flex items-center justify-center gap-2">{isLoggingIn ? <><Loader2 className="w-4 h-4 animate-spin" />{t('auth.processing')}</> : (isSignUp ? t('auth.createAccount') : t('auth.signIn'))}</button>
-            <div className="relative flex items-center py-1"><div className="flex-grow border-t border-white/10" /><span className="mx-3 text-white/20 text-[9px] font-bold uppercase tracking-widest">{t('auth.orContinueWith')}</span><div className="flex-grow border-t border-white/10" /></div>
-            <button type="button" onClick={handleGoogleLogin} disabled={isLoggingIn} className="w-full bg-white/5 text-white border border-white/10 font-bold uppercase tracking-widest py-3 rounded-xl hover:bg-white/10 disabled:opacity-50 flex items-center justify-center gap-3"><svg className="w-4 h-4" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" /><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>Google</button>
-            <div className="text-center"><button type="button" onClick={() => { setIsSignUp(!isSignUp); setAuthError(null); setResetSent(false); }} className="text-xs text-white/40 hover:text-turquoise">{isSignUp ? t('auth.alreadyHaveAccount') : t('auth.newHere')}</button></div>
-          </form>
-          <button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 p-2 text-white/20 hover:text-white"><X className="w-5 h-5" /></button>
-        </motion.div>
-      </motion.div>
-    )}</AnimatePresence>);
+    return (
+      <AnimatePresence>
+        {showAuthModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm" onClick={() => setShowAuthModal(false)}>
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} onClick={e => e.stopPropagation()} className="w-full max-w-md bg-[#0B0E14] border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-turquoise to-purple-neon" />
+              <div className="text-center mb-6">
+                <img src="/logo-musaic.jpeg" alt="Musaic AI" className="w-14 h-14 rounded-2xl mx-auto mb-3 shadow-lg" />
+                <h2 className="text-xl font-black uppercase tracking-tight text-white">{isSignUp ? t('auth.joinClub') : t('auth.accessStudio')}</h2>
+                <p className="text-white/40 text-[10px] font-medium tracking-wider uppercase mt-1">{isSignUp ? t('auth.freeTokensOnSignup') : t('auth.signIn')}</p>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-4">
+                {authError && <div className="bg-red-500/10 border border-red-500/30 p-3 rounded-xl flex items-start gap-2"><AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" /><p className="text-red-400/80 text-xs">{authError}</p></div>}
+                {resetSent && <div className="bg-turquoise/10 border border-turquoise/30 p-3 rounded-xl text-turquoise text-xs">{t('auth.resetSent')}</div>}
+
+                <div className="space-y-3">
+                  {isSignUp && (
+                    <>
+                      <div className="relative group">
+                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-turquoise" />
+                        <input
+                          type="text"
+                          value={firstName}
+                          onChange={e => setFirstName(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15"
+                          placeholder="First name"
+                        />
+                      </div>
+
+                      <div className="relative group">
+                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-turquoise" />
+                        <input
+                          type="text"
+                          value={lastName}
+                          onChange={e => setLastName(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15"
+                          placeholder="Last name"
+                        />
+                      </div>
+
+                      <div className="relative group">
+                        <Sparkles className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-turquoise" />
+                        <input
+                          type="text"
+                          value={artistName}
+                          onChange={e => setArtistName(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15"
+                          placeholder="Artist name"
+                        />
+                      </div>
+
+                      <div className="relative group">
+                        <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-turquoise" />
+                        <input
+                          type="text"
+                          value={country}
+                          onChange={e => setCountry(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15"
+                          placeholder="Country"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div className="relative group">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-turquoise" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15"
+                      placeholder={t('auth.emailPlaceholder')}
+                    />
+                  </div>
+
+                  <div className="relative group">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-turquoise" />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:border-turquoise/40 text-sm placeholder:text-white/15"
+                      placeholder={t('auth.passwordPlaceholder')}
+                    />
+                  </div>
+
+                  {!isSignUp && (
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      className="text-[10px] text-white/30 hover:text-turquoise ml-1"
+                    >
+                      {t('auth.forgotPassword')}
+                    </button>
+                  )}
+                </div>
+
+                <button type="submit" disabled={isLoggingIn} className="w-full bg-turquoise text-black font-bold uppercase tracking-widest py-3 rounded-xl hover:brightness-110 disabled:opacity-50 flex items-center justify-center gap-2">
+                  {isLoggingIn ? <><Loader2 className="w-4 h-4 animate-spin" />{t('auth.processing')}</> : (isSignUp ? t('auth.createAccount') : t('auth.signIn'))}
+                </button>
+
+                <div className="relative flex items-center py-1">
+                  <div className="flex-grow border-t border-white/10" />
+                  <span className="mx-3 text-white/20 text-[9px] font-bold uppercase tracking-widest">{t('auth.orContinueWith')}</span>
+                  <div className="flex-grow border-t border-white/10" />
+                </div>
+
+                <button type="button" onClick={handleGoogleLogin} disabled={isLoggingIn} className="w-full bg-white/5 text-white border border-white/10 font-bold uppercase tracking-widest py-3 rounded-xl hover:bg-white/10 disabled:opacity-50 flex items-center justify-center gap-3">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" /><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
+                  Google
+                </button>
+
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSignUp(!isSignUp);
+                      setAuthError(null);
+                      setResetSent(false);
+                    }}
+                    className="text-xs text-white/40 hover:text-turquoise"
+                  >
+                    {isSignUp ? t('auth.alreadyHaveAccount') : t('auth.newHere')}
+                  </button>
+                </div>
+              </form>
+
+              <button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 p-2 text-white/20 hover:text-white"><X className="w-5 h-5" /></button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
   }
 
-  // ── Sidebar ──
   function renderSidebar() {
     return (
       <aside className="hidden lg:flex flex-col w-20 xl:w-72 border-r border-white/5 bg-[#050505]/50 backdrop-blur-xl z-30">
@@ -666,36 +989,121 @@ function App() {
     );
   }
 
-  // ── Render ──
   return (
     <ErrorBoundary t={t}>
       <div className="min-h-screen bg-[#050505] text-white font-sans antialiased overflow-x-hidden">
-        <Header user={user} isAdmin={isAdmin} isStarted={!!showAppShell} onLogin={() => openAuth(false)} onSignUp={() => openAuth(true)} onMenuOpen={() => setIsMenuOpen(true)} currentLang={currentLang} onLangChange={setCurrentLang} tokenBalance={user?.points} />
+        <Header
+          user={user ? { ...user, displayName: user.artistName || user.displayName || user.email } : user}
+          isAdmin={isAdmin}
+          isStarted={!!showAppShell}
+          onLogin={() => openAuth(false)}
+          onSignUp={() => openAuth(true)}
+          onMenuOpen={() => setIsMenuOpen(true)}
+          currentLang={currentLang}
+          onLangChange={setCurrentLang}
+          tokenBalance={user?.points}
+        />
+
         {!showAppShell ? (
-          <div className="h-screen flex flex-col pt-[80px]"><div className="flex-1 flex flex-col lg:flex-row overflow-hidden">{renderSidebar()}<main className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-br from-[#050505] to-[#0B0E14] relative pb-20 lg:pb-0"><Suspense fallback={<ModuleLoader />}><LandingPage t={t} onGetStarted={() => setActiveModule('dashboard')} /></Suspense><Footer lang={currentLang} onNavigate={page => { setActiveModule(page as ModuleId); window.scrollTo(0, 0); }} /></main></div></div>
+          <div className="h-screen flex flex-col pt-[80px]">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+              {renderSidebar()}
+              <main className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-br from-[#050505] to-[#0B0E14] relative pb-20 lg:pb-0">
+                <Suspense fallback={<ModuleLoader />}>
+                  <LandingPage t={t} onGetStarted={() => setActiveModule('dashboard')} />
+                </Suspense>
+                <Footer lang={currentLang} onNavigate={page => { setActiveModule(page as ModuleId); window.scrollTo(0, 0); }} />
+              </main>
+            </div>
+          </div>
         ) : (
-          <div className="h-screen flex flex-col pt-[80px]"><div className="flex-1 flex flex-col lg:flex-row overflow-hidden">{renderSidebar()}
-            <main className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-br from-[#050505] to-[#0B0E14] relative pb-20 lg:pb-0">
-              <Suspense fallback={<ModuleLoader />}><AnimatePresence mode="wait"><motion.div key={activeModule} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="relative z-10 min-h-full">{renderModule()}</motion.div></AnimatePresence></Suspense>
-              {!['smart-link', 'dashboard', 'landing', 'artwork', 'epk', 'bio', 'video'].includes(activeModule) && <Footer lang={currentLang} onNavigate={page => { setActiveModule(page as ModuleId); window.scrollTo(0, 0); }} />}
-            </main></div>
-            <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[100] bg-[#050505]/95 backdrop-blur-xl border-t border-white/10 safe-area-pb"><div className="flex items-center justify-around px-2 py-2">{BOTTOM_NAV_ITEMS.map(item => (<button key={item.id} onClick={() => setActiveModule(item.id)} className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all ${activeModule === item.id ? 'text-turquoise' : 'text-white/30'}`}><item.icon className="w-5 h-5" /><span className="text-[8px] font-bold uppercase tracking-wider">{t(`bottomNav.${item.id === 'dashboard' ? 'home' : item.id === 'smart-link' ? 'link' : item.id === 'epk' ? 'epk' : item.id === 'artwork' ? 'art' : 'video'}`)}</span></button>))}</div></nav>
+          <div className="h-screen flex flex-col pt-[80px]">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+              {renderSidebar()}
+              <main className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-br from-[#050505] to-[#0B0E14] relative pb-20 lg:pb-0">
+                <Suspense fallback={<ModuleLoader />}>
+                  <AnimatePresence mode="wait">
+                    <motion.div key={activeModule} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="relative z-10 min-h-full">
+                      {renderModule()}
+                    </motion.div>
+                  </AnimatePresence>
+                </Suspense>
+                {!['smart-link', 'dashboard', 'landing', 'artwork', 'epk', 'bio', 'video'].includes(activeModule) && <Footer lang={currentLang} onNavigate={page => { setActiveModule(page as ModuleId); window.scrollTo(0, 0); }} />}
+              </main>
+            </div>
+
+            <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[100] bg-[#050505]/95 backdrop-blur-xl border-t border-white/10 safe-area-pb">
+              <div className="flex items-center justify-around px-2 py-2">
+                {BOTTOM_NAV_ITEMS.map(item => (
+                  <button key={item.id} onClick={() => setActiveModule(item.id)} className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all ${activeModule === item.id ? 'text-turquoise' : 'text-white/30'}`}>
+                    <item.icon className="w-5 h-5" />
+                    <span className="text-[8px] font-bold uppercase tracking-wider">{t(`bottomNav.${item.id === 'dashboard' ? 'home' : item.id === 'smart-link' ? 'link' : item.id === 'epk' ? 'epk' : item.id === 'artwork' ? 'art' : 'video'}`)}</span>
+                  </button>
+                ))}
+              </div>
+            </nav>
           </div>
         )}
-        {/* Hamburger */}
-        <AnimatePresence>{isMenuOpen && (<><motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMenuOpen(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150]" /><motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed top-0 left-0 h-full w-80 bg-[#0B0E14] border-r border-white/10 z-[151] p-8 shadow-2xl overflow-y-auto">
-          <div className="flex items-center justify-between mb-8"><div className="flex items-center gap-3"><img src="/logo-musaic.jpeg" alt="" className="w-9 h-9 rounded-xl" /><span className="text-lg font-black uppercase tracking-tight text-white">Menu</span></div><button onClick={() => setIsMenuOpen(false)} className="p-2 hover:bg-white/10 rounded-full"><X className="w-6 h-6 text-white" /></button></div>
-          <div className="space-y-1">
-            {[{ icon: Home, label: 'Artist Hub', module: 'dashboard' }, { icon: User, label: t('nav.myAccount'), module: user ? 'my-account' : 'membership' }, { icon: Crown, label: t('nav.membership'), module: 'membership' }, { icon: Sparkles, label: t('nav.releaseHub'), module: 'release-hub' }, { icon: BookOpen, label: t('nav.tutorials'), module: 'tutorials' }, { icon: HelpCircle, label: t('nav.faq'), module: 'faq' }, { icon: MessageSquare, label: t('nav.contact'), module: 'contact' }, { icon: Shield, label: t('nav.privacy'), module: 'privacy' }, { icon: FileText, label: t('nav.terms'), module: 'terms' }].map(({ icon: Icon, label, module }) => (
-              <button key={module} onClick={() => { setActiveModule(module as ModuleId); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-all group text-left"><Icon className="w-5 h-5 text-white/40 group-hover:text-turquoise" /><span className="text-xs font-bold uppercase tracking-widest text-white/60 group-hover:text-white">{label}</span></button>
-            ))}
-            <div className="h-px bg-white/5 my-4" />
-            {user ? (<><button onClick={handleLogout} className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-all group text-left"><LogOut className="w-5 h-5 text-white/40" /><span className="text-xs font-bold uppercase tracking-widest text-white/60 group-hover:text-white">{t('nav.signOut')}</span></button><button className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-red-500/10 transition-all group text-left mt-4"><Trash2 className="w-5 h-5 text-red-500/60 group-hover:text-red-500" /><span className="text-xs font-bold uppercase tracking-widest text-red-500/60 group-hover:text-red-500">{t('nav.deleteAccount')}</span></button></>
-            ) : (<><button onClick={() => openAuth(false)} className="w-full py-3 bg-white/5 border border-white/10 text-white font-bold uppercase tracking-widest text-xs rounded-xl hover:bg-white/10">{t('auth.signIn')}</button><button onClick={() => openAuth(true)} className="w-full py-3 bg-turquoise text-black font-bold uppercase tracking-widest text-xs rounded-xl hover:brightness-110 mt-2">{t('auth.createAccount')}</button></>)}
-          </div>
-        </motion.div></>)}</AnimatePresence>
+
+        <AnimatePresence>
+          {isMenuOpen && (
+            <>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMenuOpen(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150]" />
+              <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed top-0 left-0 h-full w-80 bg-[#0B0E14] border-r border-white/10 z-[151] p-8 shadow-2xl overflow-y-auto">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-3">
+                    <img src="/logo-musaic.jpeg" alt="" className="w-9 h-9 rounded-xl" />
+                    <span className="text-lg font-black uppercase tracking-tight text-white">Menu</span>
+                  </div>
+                  <button onClick={() => setIsMenuOpen(false)} className="p-2 hover:bg-white/10 rounded-full"><X className="w-6 h-6 text-white" /></button>
+                </div>
+
+                <div className="space-y-1">
+                  {[
+                    { icon: Home, label: 'Artist Hub', module: 'dashboard' },
+                    { icon: User, label: t('nav.myAccount'), module: user ? 'my-account' : 'membership' },
+                    { icon: Crown, label: t('nav.membership'), module: 'membership' },
+                    { icon: Sparkles, label: t('nav.releaseHub'), module: 'release-hub' },
+                    { icon: BookOpen, label: t('nav.tutorials'), module: 'tutorials' },
+                    { icon: HelpCircle, label: t('nav.faq'), module: 'faq' },
+                    { icon: MessageSquare, label: t('nav.contact'), module: 'contact' },
+                    { icon: Shield, label: t('nav.privacy'), module: 'privacy' },
+                    { icon: FileText, label: t('nav.terms'), module: 'terms' }
+                  ].map(({ icon: Icon, label, module }) => (
+                    <button key={module} onClick={() => { setActiveModule(module as ModuleId); setIsMenuOpen(false); }} className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-all group text-left">
+                      <Icon className="w-5 h-5 text-white/40 group-hover:text-turquoise" />
+                      <span className="text-xs font-bold uppercase tracking-widest text-white/60 group-hover:text-white">{label}</span>
+                    </button>
+                  ))}
+
+                  <div className="h-px bg-white/5 my-4" />
+
+                  {user ? (
+                    <>
+                      <button onClick={handleLogout} className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-all group text-left">
+                        <LogOut className="w-5 h-5 text-white/40" />
+                        <span className="text-xs font-bold uppercase tracking-widest text-white/60 group-hover:text-white">{t('nav.signOut')}</span>
+                      </button>
+                      <button className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-red-500/10 transition-all group text-left mt-4">
+                        <Trash2 className="w-5 h-5 text-red-500/60 group-hover:text-red-500" />
+                        <span className="text-xs font-bold uppercase tracking-widest text-red-500/60 group-hover:text-red-500">{t('nav.deleteAccount')}</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => openAuth(false)} className="w-full py-3 bg-white/5 border border-white/10 text-white font-bold uppercase tracking-widest text-xs rounded-xl hover:bg-white/10">{t('auth.signIn')}</button>
+                      <button onClick={() => openAuth(true)} className="w-full py-3 bg-turquoise text-black font-bold uppercase tracking-widest text-xs rounded-xl hover:brightness-110 mt-2">{t('auth.createAccount')}</button>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
         {renderAuthModal()}
       </div>
+
       <AIPreferencesModal isOpen={showAIModal} onClose={() => setShowAIModal(false)} preferences={aiPreferences} onUpdate={setAIPreferences} />
     </ErrorBoundary>
   );
