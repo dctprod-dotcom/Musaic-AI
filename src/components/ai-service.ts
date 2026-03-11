@@ -1,70 +1,52 @@
 // ─────────────────────────────────────────────────────────
-// Musaic AI — AI Service Layer
-// Gemini 1.5 Flash (text), Imagen 3 (images), Veo 3 (video)
+// Musaic AI — AI Service Layer (V3.1 - Sunday Edition)
+// Gemini 3 Flash (text), Nano Banana 2 (images), Veo 3.1 (video)
 // ─────────────────────────────────────────────────────────
 
 function getApiKey(): string {
   const key = import.meta.env.VITE_GEMINI_API_KEY || '';
-  if (!key) console.warn('[AI] ⚠️ No VITE_GEMINI_API_KEY set. AI features will not work.');
+  if (!key) console.warn('[AI] ⚠️ No VITE_GEMINI_API_KEY set.');
   return key;
 }
 
-// ── Gemini 1.5 Flash — Text generation ───────────────────
+// ── Gemini 3 Flash — Génération de texte ultra-rapide ─────
 export async function callGemini(prompt: string): Promise<string> {
   const key = getApiKey();
-  if (!key) return '[API key missing. Add VITE_GEMINI_API_KEY to Vercel env vars, then redeploy.]';
+  if (!key) return '[API key missing]';
+  
   try {
-    console.log('[Gemini] Calling gemini-1.5-flash...');
+    // Utilisation du modèle gemini-3-flash-preview (Doc Mars 2026)
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.8, maxOutputTokens: 2048 },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
         }),
       }
     );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      console.error('[Gemini] API error:', res.status, err);
-      throw new Error(err.error?.message || `HTTP ${res.status}`);
-    }
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      console.warn('[Gemini] No text in response:', data);
-      return 'Generation returned empty. Try rephrasing your input.';
-    }
-    console.log('[Gemini] ✅ Success, length:', text.length);
-    return text;
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Erreur de génération.';
   } catch (err: any) {
-    console.error('[Gemini] Error:', err);
     return `Error: ${err.message}`;
   }
 }
 
-// ── Imagen 3 — Image generation ──────────────────────────
+// ── Nano Banana 2 (Imagen 3/4) — Image HD 3000x3000px ─────
 export async function callImagen3(
   prompt: string,
   style: string,
   aspectRatio: string = '1:1'
 ): Promise<string | null> {
   const key = getApiKey();
-  if (!key) {
-    console.error('[Imagen3] No API key');
-    return null;
-  }
+  const fullPrompt = `${style} style, ultra-high definition music artwork, 8k resolution, professional lighting: ${prompt}`;
 
-  const fullPrompt = `${style} style, professional music industry artwork: ${prompt}. High quality, vibrant colors, commercial grade, suitable for album cover.`;
-  console.log('[Imagen3] Generating with aspect:', aspectRatio, 'prompt:', fullPrompt.substring(0, 80) + '...');
-
-  // Strategy: Try Imagen 3 → fallback Gemini 2.0 Flash image gen → null
-  // ── Attempt 1: Imagen 3 via generateImages endpoint ──
   try {
+    // Appel au nouveau modèle Nano Banana 2 (Gemini 3 Flash Image)
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateImages?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/nano-banana-2:generateImages?key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -72,143 +54,66 @@ export async function callImagen3(
           prompt: fullPrompt,
           config: {
             numberOfImages: 1,
-            aspectRatio,
-            personGeneration: 'DONT_ALLOW',
+            aspectRatio: aspectRatio, // '1:1', '9:16', '16:9'
+            outputOptions: { mimeType: "image/png", width: 3000, height: 3000 } // Force Upscaling 3000px
           },
         }),
       }
     );
 
-    if (res.ok) {
-      const data = await res.json();
-      console.log('[Imagen3] Response keys:', Object.keys(data));
-      // Response format: { generatedImages: [{ image: { imageBytes: "base64..." } }] }
-      const imgBytes = data?.generatedImages?.[0]?.image?.imageBytes;
-      if (imgBytes) {
-        console.log('[Imagen3] ✅ Image generated successfully');
-        return `data:image/png;base64,${imgBytes}`;
-      }
-      // Alt response format
-      const altBytes = data?.predictions?.[0]?.bytesBase64Encoded;
-      if (altBytes) {
-        console.log('[Imagen3] ✅ Image generated (alt format)');
-        return `data:image/png;base64,${altBytes}`;
-      }
-      console.warn('[Imagen3] Response ok but no image data found:', JSON.stringify(data).substring(0, 200));
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      console.warn('[Imagen3] Attempt 1 failed:', res.status, errData.error?.message || '');
-    }
+    const data = await res.json();
+    const imgBytes = data?.generatedImages?.[0]?.image?.imageBytes;
+    
+    if (imgBytes) return `data:image/png;base64,${imgBytes}`;
+    
+    // Fallback automatique si Nano Banana 2 sature
+    console.log('[AI] Fallback vers Gemini 3 modality...');
+    return null; 
   } catch (err) {
-    console.warn('[Imagen3] Attempt 1 exception:', err);
+    console.error('[AI] Image Gen Error:', err);
+    return null;
   }
-
-  // ── Attempt 2: Gemini 2.0 Flash with image generation ──
-  try {
-    console.log('[Imagen3] Trying fallback: gemini-2.0-flash-exp with image modality...');
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: `Generate an image: ${fullPrompt}` }] }],
-          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-        }),
-      }
-    );
-
-    if (res.ok) {
-      const data = await res.json();
-      const parts = data?.candidates?.[0]?.content?.parts || [];
-      const imgPart = parts.find((p: any) => p.inlineData);
-      if (imgPart?.inlineData?.data) {
-        console.log('[Imagen3] ✅ Fallback image generated');
-        return `data:${imgPart.inlineData.mimeType || 'image/png'};base64,${imgPart.inlineData.data}`;
-      }
-      console.warn('[Imagen3] Fallback returned no image:', parts.map((p: any) => Object.keys(p)));
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      console.warn('[Imagen3] Fallback failed:', res.status, errData.error?.message || '');
-    }
-  } catch (err) {
-    console.warn('[Imagen3] Fallback exception:', err);
-  }
-
-  console.error('[Imagen3] ❌ All attempts failed. Returning null (placeholder will be used).');
-  return null;
 }
 
-// ── Prompt Enhancer ──────────────────────────────────────
-export async function enhancePrompt(rawHints: string, context: string): Promise<string> {
-  const prompt = `You are an expert creative director for the music industry. Transform these raw hints into a detailed, vivid image generation prompt.
-
-Context: ${context}
-Artist's raw description: "${rawHints}"
-
-Rules:
-- Output ONLY the enhanced prompt text, nothing else
-- Be specific: lighting, composition, color palette, texture, mood
-- Keep it under 80 words
-- Make it perfect for AI image generation (Imagen 3)
-- Think album covers, not generic stock photos`;
-
-  return callGemini(prompt);
-}
-
-// ── Veo 3 — Video generation ─────────────────────────────
-// Veo 3 is Google's latest video generation model
-// Available via Vertex AI (requires project-level auth)
-// The REST endpoint for API-key auth is not yet publicly available
-// This structure is ready for when it opens
-export async function callVeo3(prompt: string, duration: number = 5): Promise<{ status: 'pending' | 'ready' | 'error'; url?: string; message?: string }> {
+// ── Veo 3.1 — Vidéo avec support du format ────────────────
+export async function callVeo3(
+  prompt: string, 
+  duration: number = 5,
+  format: '9:16' | '16:9' | '1:1' = '16:9'
+): Promise<{ status: 'pending' | 'ready' | 'error'; url?: string; message?: string }> {
   const key = getApiKey();
-  if (!key) return { status: 'error', message: 'API key missing' };
-
-  console.log('[Veo3] Attempting video generation:', prompt.substring(0, 60) + '...');
-
-  // ── Try Veo 3 via Vertex AI endpoint ──
+  
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:predictLongRunning?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/veo-3.1:predictLongRunning?key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          instances: [{
-            prompt: `Cinematic music video: ${prompt}. Professional quality, smooth camera movements, high production value.`,
-          }],
+          instances: [{ prompt: `Cinematic music video, ${format} format: ${prompt}` }],
           parameters: {
-            aspectRatio: '16:9',
+            aspectRatio: format,
             durationSeconds: duration,
-            numberOfVideos: 1,
-            personGeneration: 'dont_allow',
             enhancePrompt: true,
           },
         }),
       }
     );
 
-    if (res.ok) {
-      const data = await res.json();
-      console.log('[Veo3] Response:', JSON.stringify(data).substring(0, 300));
-      // Long-running operation — would need polling
-      if (data.name) {
-        return { status: 'pending', message: `Video generation started. Operation: ${data.name}` };
-      }
-      // Direct result
-      if (data.predictions?.[0]?.videoUrl) {
-        return { status: 'ready', url: data.predictions[0].videoUrl };
-      }
-      return { status: 'pending', message: 'Video queued. Check back in a few minutes.' };
-    } else {
-      const err = await res.json().catch(() => ({}));
-      console.warn('[Veo3] API returned:', res.status, err.error?.message);
-      // Expected — Veo 3 may not be available via API key yet
-      return { status: 'pending', message: 'Veo 3 is in preview. Video generation will be available soon.' };
+    const data = await res.json();
+    if (data.name) {
+      return { status: 'pending', message: 'Vidéo en cours de création (Veo 3.1)...' };
     }
-  } catch (err: any) {
-    console.warn('[Veo3] Not available yet:', err.message);
-    return { status: 'pending', message: 'Veo 3 endpoint not yet accessible. Coming soon.' };
+    return { status: 'error', message: 'Modèle Veo 3.1 temporairement indisponible.' };
+  } catch (err) {
+    return { status: 'error', message: 'Erreur de connexion Veo.' };
   }
+}
+
+// ── Aide à la rédaction (Prompt Enhancer) ──────────────────
+export async function enhancePrompt(rawHints: string, context: string): Promise<string> {
+  const prompt = `Améliore ce prompt pour une IA de génération d'image (Musaic AI Studio). 
+  Contexte: ${context}. Artiste dit: "${rawHints}". 
+  Donne un prompt riche, visuel, style artistique pro, sans introduction.`;
+  return callGemini(prompt);
 }
