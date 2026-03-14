@@ -67,6 +67,9 @@ const PLATFORMS = {
 };
 
 export function SpotlightEditor({ user, t, onBack, generatedAssets }: { user: any, t: (key: string) => string, onBack: () => void, generatedAssets?: any }) {
+  const publicAppUrl = (import.meta.env.VITE_PUBLIC_APP_URL || '').replace(/\/$/, '');
+  const baseOrigin = publicAppUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  const shortBase = baseOrigin.replace(/^https?:\/\//, '');
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -380,7 +383,7 @@ export function SpotlightEditor({ user, t, onBack, generatedAssets }: { user: an
               <div className="space-y-3">
                 <label className="text-xs font-bold uppercase tracking-widest text-white/40 ml-1">{t('custom_url_slug')}</label>
                 <div className="flex items-center gap-2">
-                  <span className="text-white/40 text-xs font-mono">musaic-ai.app/</span>
+                  <span className="text-white/40 text-xs font-mono">{shortBase || 'musaic-ai.app'}/</span>     
                   <div className="relative flex-1">
                     <input
                       type="text"
@@ -886,13 +889,13 @@ export function SpotlightEditor({ user, t, onBack, generatedAssets }: { user: an
               
               <div className="bg-white/5 rounded-xl p-4 flex items-center gap-3 border border-white/5">
                 <Globe className="w-5 h-5 text-turquoise shrink-0" />
-                <span className="text-white font-mono text-sm truncate flex-1">musaic-ai.app/s/{formData.slug}</span>
+                  <span className="text-white/40 text-xs font-mono">{shortBase || 'musaic-ai.app'}/</span> 
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <button onClick={() => {
-                  const url = `${window.location.origin}/s/${formData.slug}`;
-                  navigator.clipboard.writeText(url);
+                  const url = `${baseOrigin}/s/${formData.slug}`;
+              navigator.clipboard.writeText(url);
                   alert(t('link_copied'));
                 }} className="flex items-center justify-center gap-2 py-3.5 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold uppercase text-xs tracking-widest transition-all border border-white/10">
                   <Copy className="w-4 h-4" /> {t('copy_link')}
