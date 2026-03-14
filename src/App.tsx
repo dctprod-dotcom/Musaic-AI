@@ -8,7 +8,7 @@ import {
   FileText, LogOut, Globe, BookOpen, Image as ImageIcon,
   Sparkles, Coins, ArrowRight, CreditCard, MessageSquare,
   Send, ChevronDown, Check, Crown, Clock, ArrowLeft,
-  Play, Wand2
+  Play, Wand2, Camera
 } from 'lucide-react';
 import {
   onAuthStateChanged, signInWithEmailAndPassword,
@@ -19,7 +19,8 @@ import {
 import {
   doc, getDoc, setDoc, updateDoc, increment, serverTimestamp, collection
 } from 'firebase/firestore';
-import { auth, db, googleProvider } from './firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, googleProvider, storage } from './firebase';
 import { AIPreferences, DEFAULT_AI_PREFERENCES } from './types';
 import { AIPreferencesModal } from './components/AIPreferencesModal';
 import { useTranslation, LanguageCode } from './lib/i18n';
@@ -276,15 +277,41 @@ function MyAccountPage({
   t,
   user,
   isAdmin,
-  onNavigate
+  onNavigate,
+  onAvatarUpdated
 }: {
   t: (k: string) => string;
   user: any;
   isAdmin: boolean;
   onNavigate: (id: ModuleId) => void;
+  onAvatarUpdated: (avatarUrl: string) => void;
 }) {
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
   if (!user) return null;
 
+   const handleAvatarUpload = async (file?: File | null) => {
+    if (!file || !user?.uid) return;
+    setAvatarUploading(true);
+    setAvatarError(null);
+    try {
+      if (!file.type.startsWith('image/')) throw new Error('Please select an image file.');
+      if (file.size > 5 * 1024 * 1024) throw new Error('Image must be under 5MB.');
+      if (!storage) throw new Error('Storage is not configured.');
+
+      const avatarRef = ref(storage, `avatars/${user.uid}/profile.jpg`);
+      await uploadBytes(avatarRef, file);
+      const avatarUrl = await getDownloadURL(avatarRef);
+      await updateDoc(doc(db, 'users', user.uid), { avatar: avatarUrl, updatedAt: serverTimestamp() });
+      onAvatarUpdated(avatarUrl);
+    } catch (err: any) {
+      setAvatarError(err?.message || 'Avatar upload failed.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+  
   const planLabel = isAdmin
     ? t('account.admin')
     : user.isPro
@@ -321,6 +348,37 @@ function MyAccountPage({
         )}
       </div>
 
+       <div className="glass-card rounded-3xl p-6 lg:p-8">
+        <div className="flex items-center gap-4">
+          {user.avatar ? (
+            <img
+              src={user.avatar}
+              alt="Profile avatar"
+              className="w-24 h-24 rounded-full object-cover border border-white/20 shadow-[0_0_20px_rgba(0,255,221,0.15)]"
+            />
+          ) : (
+            <div className="w-24 h-24 rounded-full border border-white/20 bg-white/5 shadow-[0_0_20px_rgba(0,255,221,0.1)] flex items-center justify-center">
+              <User className="w-10 h-10 text-white/35" />
+            </div>
+          )}
+          <div className="space-y-2">
+            <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold uppercase tracking-widest cursor-pointer">
+              <Camera className="w-4 h-4 text-turquoise" />
+              {avatarUploading ? 'Uploading...' : 'Upload Photo'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={avatarUploading}
+                onChange={(e) => handleAvatarUpload(e.target.files?.[0])}
+              />
+            </label>
+            <p className="text-[10px] text-white/40">JPG/PNG, max 5MB • stored in /avatars/{'{uid}'}/profile.jpg</p>
+            {avatarError && <p className="text-[11px] text-red-400">{avatarError}</p>}
+          </div>
+        </div>
+      </div>
+      
       <div className="glass-card rounded-3xl p-8 lg:p-10 text-center">
         <Coins className="w-8 h-8 text-gold mx-auto mb-3" />
         <p className="text-6xl lg:text-7xl font-black text-gold">
@@ -529,6 +587,28 @@ function App() {
       console.log('[Auth] State changed:', u ? u.email : 'signed out');
       if (u) {
         try {
+          const isTurboAdmin = u.email === ADMIN_EMAIL;
+          if (isTurboAdmin) {
+            setUser({
+              ...u,
+              uid: u.uid,
+              email: u.email,
+              displayName: u.displayName || 'Admin',
+              firstName: 'Admin',
+              lastName: 'Owner',
+              artistName: 'Musaic AI',
+              country: 'Global',
+              avatar: u.photoURL || '',
+              isPro: true,
+              plan: 'pro',
+              points: 999999,
+            });
+            setIsAdmin(true);
+            if (activeModule === 'landing') setActiveModule('dashboard');
+            setLoading(false);
+            return;
+          }
+          
           const ref = doc(db, 'users', u.uid);
           const snap = await getDoc(ref);
           let data: any;
@@ -555,21 +635,16 @@ function App() {
             await setDoc(ref, data);
           }
 
-          const admin = u.email === ADMIN_EMAIL;
-          if (admin) {
-            console.log('[Auth] 👑 ADMIN DETECTED:', u.email, '→ Granting full access');
-          }
-
           setUser({
             ...u,
             ...data,
             uid: u.uid,
-            isPro: admin ? true : (data.isPro || false),
-            plan: admin ? 'pro' : (data.plan || 'guest'),
-            points: admin ? 99999 : (data.points ?? data.credits ?? 50),
+            isPro: data.isPro || false,
+            plan: data.plan || 'guest',
+            points: data.points ?? data.credits ?? 50,
           });
-          setIsAdmin(admin);
-
+          setIsAdmin(false);
+          
           if (activeModule === 'landing') setActiveModule('dashboard');
         } catch (err: any) {
           console.error('[Auth] Firestore error:', err.code, err.message, err);
@@ -625,9 +700,11 @@ function App() {
       return;
     }
 
-    if (isSignUp && !artistName.trim()) {
-      setAuthError('Artist name is required.');
-      return;
+   if (isSignUp) {
+      if (!firstName.trim() || !lastName.trim() || !artistName.trim() || !country.trim()) {
+        setAuthError('First name, last name, artist name, and country are required.');
+        return;
+      }
     }
 
     setIsLoggingIn(true);
