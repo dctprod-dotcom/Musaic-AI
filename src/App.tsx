@@ -867,7 +867,7 @@ function App() {
       case 'pricing':
         return <MembershipPage t={t} user={user} isAdmin={isAdmin} />;
       case 'my-account':
-        return user ? <MyAccountPage t={t} user={user} isAdmin={isAdmin} onNavigate={setActiveModule} /> : <AuthGate t={t} onSignUp={() => openAuth(true)} />;
+        return user ? <MyAccountPage t={t} user={user} isAdmin={isAdmin} onNavigate={setActiveModule} onAvatarUpdated={(avatarUrl) => setUser((p: any) => p ? { ...p, avatar: avatarUrl } : p)} /> : <AuthGate t={t} onSignUp={() => openAuth(true)} />;
       case 'release-hub':
         return <ReleaseHub />;
       case 'media-library':
@@ -1076,6 +1076,7 @@ function App() {
           onLogin={() => openAuth(false)}
           onSignUp={() => openAuth(true)}
           onMenuOpen={() => setIsMenuOpen(true)}
+          onLogoClick={goHome}
           currentLang={currentLang}
           onLangChange={setCurrentLang}
           tokenBalance={user?.points}
